@@ -1,8 +1,8 @@
 
 require('dotenv').config();
 const querystring = require('querystring');
+const fs = require('fs').promises;
 var access_token
-
 
 var express = require('express')
 var app = express()
@@ -58,10 +58,17 @@ app.get('/callback', async (req, res) => {
       });
       
       const songsData = await songs.json();
-      console.log('Your liked songs:', songsData);
-      
-      // Send response to client
-      res.json(songsData);
+
+      // Save the songs data to a JSON file
+      const savedFilename = await saveSongsToJson(songsData);
+        
+      // Send response to client with the filename where data was saved
+      res.json({
+        message: 'Songs data saved successfully',
+        filename: savedFilename,
+        data: songsData
+      });
+
       
   } catch (error) {
       console.error('Error:', error);
@@ -73,3 +80,48 @@ app.get('/callback', async (req, res) => {
 app.listen(8888, () => {
   console.log('Server is running on http://localhost:8888');
 });
+
+async function saveSongsToJson(songsData) {
+  try {
+      // Deep clean function to remove available_markets from any level of the object
+      function cleanSpotifyData(obj) {
+          // If this is an array, clean each item
+          if (Array.isArray(obj)) {
+              return obj.map(item => cleanSpotifyData(item));
+          }
+          
+          // If this is an object, clean its properties
+          if (obj && typeof obj === 'object') {
+              const cleanedObj = {};
+              for (const [key, value] of Object.entries(obj)) {
+                  // Skip the available_markets field
+                  if (key !== 'available_markets') {
+                      cleanedObj[key] = cleanSpotifyData(value);
+                  }
+              }
+              return cleanedObj;
+          }
+          
+          // If it's neither an array nor an object, return as is
+          return obj;
+      }
+
+      // Clean the data before saving
+      const cleanedData = cleanSpotifyData(songsData);
+      
+      // Create a data folder if it doesn't exist
+      await fs.mkdir('data', { recursive: true });
+      
+      // Format the cleaned data nicely with indentation
+      const formattedData = JSON.stringify(cleanedData, null, 2);
+      
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = `data/spotify-likes-${timestamp}.json`;
+      
+      await fs.writeFile(filename, formattedData, 'utf8');
+      return filename;
+  } catch (error) {
+      console.error('Error saving songs:', error);
+      throw error;
+  }
+}
